@@ -1,0 +1,9 @@
+/build/
+/VALIDATION.md
+.DS_Store
+*.log
+*.dmg
+*.zip
+.env
+.env.*
+/tags.json

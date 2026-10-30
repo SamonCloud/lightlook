@@ -1,0 +1,8 @@
+{
+  "repository": "https://raw.pixls.us/",
+  "license": "CC0 1.0",
+  "samples": [
+    {"file": "06-Sony-A7S.ARW", "camera": "Sony ILCE-7S", "url": "https://raw.pixls.us/getfile.php/1582/nice/", "sha256": "a35ebb2fbec929daa5beb20d1ce5c15a8aac7b1a7a231455387f3df8a7442e07", "decodedPixels": [2768,1848]},
+    {"file": "07-Canon-5D3.DNG", "camera": "Canon EOS 5D Mark III; Adobe DNG Converter, lossy JPEG RGB", "url": "https://raw.pixls.us/getfile.php/1033/nice/", "sha256": "b22f1e36331f679abb8b13e433b9bbde3988723adf10fee7aa0dda6381016a98", "decodedPixels": [3960,2640]}
+  ]
+}
