@@ -7,17 +7,28 @@ struct MediaItem: Hashable {
     let url: URL
     let size: Int64
     let modified: Date
+    var isDirectory = false
     var name: String { url.lastPathComponent }
     var isVideo: Bool { ["mp4", "m4v", "mov"].contains(url.pathExtension.lowercased()) }
-    static let extensions: Set<String> = ["jpg","jpeg","heic","heif","png","tif","tiff","gif","bmp","webp","avif","arw","srf","sr2","dng","cr2","cr3","crw","nef","nrw","orf","raf","rw2","pef","rwl","3fr","fff","iiq","mp4","mov","m4v"]
+    static let extensions: Set<String> = ["jpg","jpeg","jpe","jfif","hif","heic","heif","png","tif","tiff","gif","bmp","webp","avif","arw","srf","sr2","dng","cr2","cr3","crw","nef","nrw","orf","raf","rw2","pef","rwl","3fr","fff","iiq","raw","srw","x3f","mos","mef","dcr","kdc","erf","mrw","psd","ico","icns","jp2","j2k","tga","pbm","pgm","ppm","mp4","mov","m4v"]
     static func read(_ url: URL) -> MediaItem {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         return MediaItem(url: url, size: Int64(values?.fileSize ?? 0), modified: values?.contentModificationDate ?? .distantPast)
     }
     static func scan(_ folder: URL) throws -> [MediaItem] {
-        try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]).filter {
-            extensions.contains($0.pathExtension.lowercased()) && ((try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true)
-        }.map(read).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
+        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]).compactMap { url -> MediaItem? in
+            guard let values = try? url.resourceValues(forKeys: keys), values.isSymbolicLink != true else { return nil }
+            var item = read(url)
+            if values.isDirectory == true && values.isPackage != true {
+                item.isDirectory = true
+                return item
+            }
+            let ext = url.pathExtension.lowercased()
+            guard values.isRegularFile == true, !ext.isEmpty,
+                  extensions.contains(ext) || UTType(filenameExtension: ext)?.conforms(to: .image) == true else { return nil }
+            return item
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 }
 
@@ -49,7 +60,12 @@ final class MediaLoader {
     private let cache = NSCache<NSString, NSImage>()
     init() { queue.maxConcurrentOperationCount = 2; queue.qualityOfService = .userInitiated; cache.totalCostLimit = 96 * 1024 * 1024 }
     func clearPending() { queue.cancelAllOperations() }
-    static func source(_ url: URL) -> CGImageSource? { CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache:false] as CFDictionary) }
+    static func source(_ url: URL) -> CGImageSource? {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        if let source = CGImageSourceCreateWithURL(url as CFURL, options), CGImageSourceGetCount(source) > 0 { return source }
+        guard url.pathExtension.lowercased() == "hif" else { return nil }
+        return CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false, kCGImageSourceTypeIdentifierHint: UTType.heic.identifier] as CFDictionary)
+    }
     static func decode(_ url: URL, pixels: Int) -> CGImage? {
         guard let source = source(url) else { return nil }
         let index = CGImageSourceGetPrimaryImageIndex(source)

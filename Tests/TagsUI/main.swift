@@ -10,6 +10,8 @@ func waitFor(_ message: String,_ predicate: () -> Bool) {
         _ = RunLoop.current.run(mode:.default,before:Date().addingTimeInterval(0.02))
     }
 }
+let previousLastFolder = UserDefaults.standard.object(forKey: "lastFolder")
+defer { UserDefaults.standard.set(previousLastFolder, forKey: "lastFolder") }
 let app = NSApplication.shared; app.setActivationPolicy(.prohibited)
 let root = URL(fileURLWithPath:CommandLine.arguments[1],isDirectory:true).appendingPathComponent("tag-ui-fixtures-\(UUID().uuidString)",isDirectory:true)
 try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
@@ -22,10 +24,44 @@ for name in ["one.png","two.png","three.png"] {
     let destination = CGImageDestinationCreateWithURL(photos.appendingPathComponent(name) as CFURL,UTType.png.identifier as CFString,1,nil)!
     CGImageDestinationAddImage(destination,context.makeImage()!,nil); require(CGImageDestinationFinalize(destination),"write PNG fixture")
 }
+let formatFolder = root.appendingPathComponent("formats", isDirectory: true)
+let childFolder = formatFolder.appendingPathComponent("RAW", isDirectory: true)
+try FileManager.default.createDirectory(at: childFolder, withIntermediateDirectories: true)
+let hif = formatFolder.appendingPathComponent("camera.HIF")
+let heifWriter = CGImageDestinationCreateWithURL(hif as CFURL, UTType.heic.identifier as CFString, 1, nil)!
+CGImageDestinationAddImage(heifWriter, context.makeImage()!, nil)
+require(CGImageDestinationFinalize(heifWriter), "write HEIF fixture with .HIF extension")
+let junk = formatFolder.appendingPathComponent("notes.txt")
+try Data("not an image".utf8).write(to: junk)
+let scanned = try MediaItem.scan(formatFolder)
+require(scanned.count == 2 && scanned.contains { $0.isDirectory && $0.name == "RAW" }, "scan includes visible child folder and HIF only")
+require(scanned.contains { !$0.isDirectory && $0.name == "camera.HIF" }, "uppercase HIF is visible")
+require(MediaLoader.decode(hif, pixels: 400) != nil, "HIF thumbnail decodes")
 let tags = FileTagStore(fileURL:root.appendingPathComponent("state/tags.json"))
 let browser = BrowserController(tagStore:tags,restoreLastFolder:false)
 browser.openFolder(photos)
 waitFor("folder scan") { browser.items.count == 3 }
+let menu = browser.contextMenu(at: 2)!
+require(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == ["在 Finder 打开","复制到…","移动到…","标记为选择","标记为待删除"], "file context menu has all five actions")
+let clicked = browser.items[2].url
+require(browser.selected == clicked, "context menu selects the clicked file")
+for _ in 0..<2 { _ = NSApp.sendAction(menu.items[4].action!, to: browser, from: menu.items[4]) }
+require(tags.flags(for: clicked).isEmpty, "context tag toggles the clicked file without deleting it")
+require(FileManager.default.fileExists(atPath: clicked.path), "context pending-delete preserves original")
+browser.select(0)
+UserDefaults.standard.set(childFolder.path, forKey: "lastFolder")
+let restoredBrowser = BrowserController(tagStore: tags)
+waitFor("startup restores selected directory tree row") {
+    let outline = restoredBrowser.outline
+    guard outline.selectedRow >= 0,
+          let selected = outline.item(atRow: outline.selectedRow) as? FolderNode else { return false }
+    return selected.url.path == childFolder.path
+}
+let restoredOutline = restoredBrowser.outline
+let restoredNode = restoredOutline.item(atRow: restoredOutline.selectedRow) as! FolderNode
+require(restoredBrowser.folder?.path == childFolder.path, "sidebar and browser restore the same directory")
+require(restoredOutline.level(forItem: restoredNode) > 0, "startup expands ancestors rather than inserting a duplicate root")
+require(restoredBrowser.window?.representedURL?.path == childFolder.path, "startup restoration finishes the directory scan")
 let first = browser.currentItem!.url
 func key(_ code: UInt16,_ characters: String, window: NSWindow? = nil, repeated: Bool = false) {
     _ = browser.handleTagShortcut(code,isARepeat:repeated)

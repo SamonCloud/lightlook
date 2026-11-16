@@ -47,7 +47,7 @@ extension BrowserController {
     @objc func toggleChosenTag() { toggleTag(.chosen) }
     @objc func togglePendingTag() { toggleTag(.pendingDelete) }
     func toggleTag(_ tag: PhotoTag) {
-        guard !fileOperationRunning, let item = currentItem else { return }
+        guard !fileOperationRunning, let item = currentItem, !item.isDirectory else { return }
         let previousIndex = items.firstIndex(where:{$0.url == item.url}) ?? 0
         do {
             let adding = try tagStore.toggle(tag,url:item.url,reviewing:reviewingTag)

@@ -24,9 +24,9 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
     let fullTagLabel = label("",size:13,color:.white)
     var fileOperationRunning = false
     let fileQueue = DispatchQueue(label:"lightlook.files",qos:.userInitiated)
-    let outline = NSOutlineView()
-    let collection = NSCollectionView()
-    let files = NSTableView()
+    let outline = BrowserOutlineView()
+    let collection = BrowserCollectionView()
+    let files = BrowserTableView()
     let canvas = ImageCanvas()
     let video = AVPlayerView()
     let metadata = NSStackView()
@@ -43,6 +43,7 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
     var gridScroll: NSScrollView!
     var fileScroll: NSScrollView!
     var roots: [FolderNode] = []
+    private var syncingOutline = false
     var allItems: [MediaItem] = []
     var items: [MediaItem] = []
     var selected: URL?
@@ -90,6 +91,12 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
     required init?(coder: NSCoder) { fatalError() }
     func buildUI() {
         guard let content = window?.contentView else { return }
+        files.menuAtRow = { [weak self] row in self?.contextMenu(at: row) }
+        collection.menuAtItem = { [weak self] index in self?.contextMenu(at: index) }
+        outline.menuAtRow = { [weak self] row in
+            guard let self, row >= 0, let node = self.outline.item(atRow: row) as? FolderNode else { return nil }
+            return self.itemMenu(MediaItem(url: node.url, size: 0, modified: .distantPast, isDirectory: true))
+        }
         let outer = NSStackView(); outer.orientation = .vertical; outer.spacing = 0; outer.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(outer)
         NSLayoutConstraint.activate([outer.leadingAnchor.constraint(equalTo:content.leadingAnchor),outer.trailingAnchor.constraint(equalTo:content.trailingAnchor),outer.topAnchor.constraint(equalTo:content.topAnchor),outer.bottomAnchor.constraint(equalTo:content.bottomAnchor)])
         let top = NSStackView(); top.spacing = 10; top.edgeInsets = NSEdgeInsets(top:10,left:14,bottom:10,right:14)
@@ -157,9 +164,44 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
     }
     func buildRoots() {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        var urls = [home.appendingPathComponent("Pictures"),home.appendingPathComponent("Desktop"),home.appendingPathComponent("Downloads"),home,URL(fileURLWithPath:"/Volumes")]
-        if let folder = folder, !urls.contains(folder) { urls.insert(folder,at:0) }
-        roots = urls.filter { FileManager.default.fileExists(atPath:$0.path) }.map(FolderNode.init); outline.reloadData()
+        let urls = [home.appendingPathComponent("Pictures"),home.appendingPathComponent("Desktop"),home.appendingPathComponent("Downloads"),home,URL(fileURLWithPath:"/Volumes")]
+        syncingOutline = true
+        defer { syncingOutline = false }
+        roots = urls.filter { FileManager.default.fileExists(atPath:$0.path) }.map(FolderNode.init)
+        outline.reloadData()
+    }
+
+    private func revealFolderInOutline(_ url: URL) {
+        let target = url.standardizedFileURL.pathComponents
+        syncingOutline = true
+        defer { syncingOutline = false }
+
+        let candidates = roots.filter { target.starts(with: $0.url.standardizedFileURL.pathComponents) }
+        if let root = candidates.max(by: { $0.url.pathComponents.count < $1.url.pathComponents.count }) {
+            var node = root
+            for component in target.dropFirst(root.url.standardizedFileURL.pathComponents.count) {
+                guard let child = node.load().first(where: { $0.url.lastPathComponent == component }) else { break }
+                outline.expandItem(node)
+                node = child
+            }
+            if node.url.standardizedFileURL.pathComponents == target {
+                selectOutlineNode(node)
+                return
+            }
+        }
+
+        // Folders outside the sidebar roots or hidden from the tree still get a selectable entry.
+        let node = FolderNode(url)
+        roots.insert(node, at: 0)
+        outline.insertItems(at: IndexSet(integer: 0), inParent: nil)
+        selectOutlineNode(node)
+    }
+
+    private func selectOutlineNode(_ node: FolderNode) {
+        let row = outline.row(forItem: node)
+        guard row >= 0 else { return }
+        outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        outline.scrollRowToVisible(row)
     }
     @objc func chooseFolder() {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false; panel.prompt = "打开"; panel.directoryURL = folder
@@ -176,6 +218,7 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
                 guard self.scanID == token else { return }
                 switch result {
                 case .success(let items):
+                    self.revealFolderInOutline(url)
                     self.allItems = items; self.selected = select ?? items.first?.url; self.filterItems(); UserDefaults.standard.set(url.path,forKey:"lastFolder"); self.window?.representedURL = url; self.window?.makeFirstResponder(self.mode.selectedSegment == 0 ? self.collection : self.files)
                 case .failure(let error): self.allItems = []; self.selected = nil; self.filterItems(); self.showError("无法读取文件夹",error:error)
                 }
@@ -192,10 +235,11 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
         case 3: items.sort { $0.size == $1.size ? $0.name < $1.name : $0.size > $1.size }
         default: items.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         }
+        items = items.filter(\.isDirectory) + items.filter { !$0.isDirectory }
         MediaLoader.shared.clearPending(); collection.reloadData(); files.reloadData()
         selected = items.contains(where:{$0.url == old}) ? old : items.first?.url
         syncSelection(); loadSelection()
-        status.stringValue = (currentTag.map { "\($0.title) · " } ?? "") + "\(items.count) 个文件" + (items.count != allItems.count ? " / 共 \(allItems.count) 个" : "")
+        status.stringValue = (currentTag.map { "\($0.title) · " } ?? "") + "\(items.filter(\.isDirectory).count) 个文件夹 · \(items.filter { !$0.isDirectory }.count) 个文件" + (items.count != allItems.count ? " / 共 \(allItems.count) 个" : "")
         updateTagIndicators()
     }
     func controlTextDidChange(_ obj: Notification) { filterItems() }
@@ -248,6 +292,12 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
         guard let item = currentItem else { fileTitle.stringValue = "尚未选择文件"; canvas.isHidden = false; video.isHidden = true; canvas.message = items.isEmpty ? "此目录没有匹配的图片或视频" : "选择一张图片"; if fullWindow != nil { closeFullscreen() }; return }
         fileTitle.stringValue = item.name; fileTitle.toolTip = item.url.path; fullTitle.stringValue = item.name
         updateTagIndicators()
+        if item.isDirectory {
+            canvas.isHidden = false; video.isHidden = true
+            canvas.message = "双击打开文件夹"
+            if fullWindow != nil { closeFullscreen() }
+            return
+        }
         if !isFileAvailable(item) {
             canvas.isHidden = false; video.isHidden = true; fullCanvas.isHidden = false; fullVideo.isHidden = true
             canvas.message = "文件不可用或已被替换"; fullCanvas.message = "文件不可用或已被替换 · 可取消标签或按 Esc 返回"
@@ -317,6 +367,7 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
         window?.beginSheet(settings!.panel)
     }
     @objc func openFullscreen() {
+        if fullWindow == nil, let item = currentItem, item.isDirectory { enterFolder(item.url); return }
         guard fullWindow == nil, let item = currentItem, let screen = window?.screen ?? NSScreen.main else { return }
         let w = FullscreenWindow(contentRect:screen.frame,styleMask:[.borderless],backing:.buffered,defer:false); w.title = "轻览 · 全屏"; w.backgroundColor = .black; w.isReleasedWhenClosed = false; w.collectionBehavior = [.fullScreenAuxiliary]; w.appearance = NSAppearance(named:.darkAqua)
         let content = NSView(frame:NSRect(origin:.zero,size:screen.frame.size)); w.contentView = content
@@ -432,7 +483,7 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
         }
     }
     func cast(to device: Renderer) {
-        guard let item = currentItem else { return }; guard !castBusy else { return }; castBusy = true; status.stringValue = "正在投屏到 \(device.name)…"
+        guard let item = currentItem, !item.isDirectory else { return }; guard !castBusy else { return }; castBusy = true; status.stringValue = "正在投屏到 \(device.name)…"
         castController.cast(item,to:device) { error in
             self.castBusy = false
             if let error = error { self.castController.server.stop(); self.showError("投屏失败",error:error); self.status.stringValue = "投屏失败" }
@@ -448,6 +499,12 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
     func numberOfRows(in tableView: NSTableView) -> Int { items.count }
     func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
         guard items.indices.contains(row) else { return nil }; let item = items[row]; let text: String
+        if item.isDirectory {
+            let identifier = column?.identifier.rawValue
+            if identifier == "name" { return label("📁  " + item.name) }
+            if identifier == "type" { return label("文件夹") }
+            if identifier != "modified" { return label("") }
+        }
         switch column?.identifier.rawValue { case "tags": text = PhotoTag.text(flags(for:item.url)); case "type": text = item.url.pathExtension.uppercased(); case "size": text = ByteCountFormatter.string(fromByteCount:item.size,countStyle:.file); case "modified": text = DateFormatter.localizedString(from:item.modified,dateStyle:.short,timeStyle:.short); default: text = (item.isVideo ? "▶  " : "") + item.name }
         let field = label(text,size:12); field.lineBreakMode = .byTruncatingMiddle; field.toolTip = column?.identifier.rawValue == "name" ? item.url.path : text; return field
     }
@@ -468,5 +525,10 @@ final class BrowserController: NSWindowController, NSWindowDelegate, NSOutlineVi
         NSLayoutConstraint.activate([icon.leadingAnchor.constraint(equalTo:cell.leadingAnchor,constant:2),icon.centerYAnchor.constraint(equalTo:cell.centerYAnchor),icon.widthAnchor.constraint(equalToConstant:16),icon.heightAnchor.constraint(equalToConstant:16),text.leadingAnchor.constraint(equalTo:icon.trailingAnchor,constant:7),text.trailingAnchor.constraint(equalTo:cell.trailingAnchor,constant:-3),text.centerYAnchor.constraint(equalTo:cell.centerYAnchor)])
         return cell
     }
-    func outlineViewSelectionDidChange(_ notification: Notification) { if let node = outline.item(atRow:outline.selectedRow) as? FolderNode { openFolder(node.url) } }
+    func outlineViewSelectionDidChange(_ notification: Notification) {
+        guard !syncingOutline, outline.selectedRow >= 0,
+              let node = outline.item(atRow: outline.selectedRow) as? FolderNode else { return }
+        if currentTag == nil, folder?.standardizedFileURL.path == node.url.standardizedFileURL.path { return }
+        openFolder(node.url)
+    }
 }

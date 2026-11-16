@@ -97,6 +97,11 @@ final class ThumbnailCell: NSCollectionViewItem {
         representedURL = item.url; label.stringValue = item.name; view.toolTip = item.url.path
         tagsLabel.stringValue = PhotoTag.text(tags); tagsLabel.isHidden = tags.isEmpty
         tagsLabel.textColor = tags.contains(.pendingDelete) ? .systemOrange : .systemGreen
+        if item.isDirectory {
+            badge.stringValue = "文件夹"
+            picture.image = NSImage(systemSymbolName:"folder.fill",accessibilityDescription:"文件夹")
+            return
+        }
         badge.stringValue = (item.isVideo ? "▶ " : "") + item.url.pathExtension.uppercased()
         picture.image = NSImage(systemSymbolName:item.isVideo ? "film" : "photo",accessibilityDescription:nil)
         if !available { badge.stringValue += " · 不可用"; return }

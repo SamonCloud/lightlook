@@ -4,23 +4,23 @@
 
 [下载最新安装包](https://github.com/SamonCloud/lightlook/releases/latest) · [版本发布记录](https://github.com/SamonCloud/lightlook/releases)
 
-轻览是一个直接浏览文件夹的 macOS 原生图片与视频查看器。它采用 Swift、AppKit、Image I/O、AVKit、MapKit 和 Network.framework，不依赖 Electron、浏览器运行时、数据库或第三方解码库。当前版本为可运行的 0.2.0 原型，面向本机使用。
+轻览是一个直接浏览文件夹的 macOS 原生图片与视频查看器。它采用 Swift、AppKit、Image I/O、AVKit、MapKit 和 Network.framework，不依赖 Electron、浏览器运行时、数据库或第三方解码库。当前版本为可运行的 0.2.2 原型，面向本机使用。
 
 ## 打开应用
 
-DMG 安装镜像位于 `build/轻览-0.2.0-macOS-arm64.dmg`，打开后将“轻览.app”拖入 Applications 即可安装。
+DMG 安装镜像位于 `build/轻览-0.2.2-macOS-arm64.dmg`，打开后将“轻览.app”拖入 Applications 即可安装。
 
-本次新版应用位于 `build/releases/0.2.0/轻览.app`，可以直接双击，也可以复制到自己的“应用程序”目录。程序坞和 Finder 使用蓝绿色相框与山形 Logo，图标由 `Tools/Icon.swift` 生成。应用启动时会明确加载图标。
+本次新版应用位于 `build/releases/0.2.2/轻览.app`，可以直接双击，也可以复制到自己的“应用程序”目录。程序坞和 Finder 使用蓝绿色相框与山形 Logo，图标由 `Tools/Icon.swift` 生成。应用启动时会明确加载图标。
 
 当前构建面向 Apple Silicon；源码最低部署目标为 macOS 13，实际验证环境为 macOS 27.0.1。本版本使用本机临时签名，尚未进行 Apple Developer ID 签名和公证。
 
 打开后点击左上角文件夹按钮选择目录。浏览和打标签不改写图片内容，也不导入图库；文件复制、移动和废纸篓处理只在您发起批处理后执行；文件夹内容变化后按 `⌘R` 刷新。
 
 ```sh
-LIGHTLOOK_APP_DIR="$PWD/build/releases/0.2.0/轻览.app" zsh build.sh
-open build/releases/0.2.0/轻览.app
+LIGHTLOOK_APP_DIR="$PWD/build/releases/0.2.2/轻览.app" zsh build.sh
+open build/releases/0.2.2/轻览.app
 # 指定一个目录或图片：
-open build/releases/0.2.0/轻览.app --args "/你的图片目录"
+open build/releases/0.2.2/轻览.app --args "/你的图片目录"
 ```
 
 上下键在主窗口缩略图模式按实际布局移动到相邻行，并尽量保持同一列；选中项超出可见范围时，浏览区域自动向下或向上滚动，使其显示在窗口内；末行没有对应列时选择最近的一张，返回上一行时保留原列。调整窗口宽度、分栏或缩略图大小后自动按新布局计算。列表和全屏模式的方向键操作不变。
@@ -139,3 +139,7 @@ build/media-tests --inspect "/路径/照片.ARW" "/路径/照片.DNG"
 - [Apple 相机 RAW 支持说明与机型清单](https://support.apple.com/en-nz/122870)
 - [UPnP AVTransport 服务规范](https://upnp.org/specs/av/UPnP-av-AVTransport-v3-Service.pdf)
 - [公开 RAW 样本库 raw.pixls.us](https://raw.pixls.us/)，本次选用 CC0 样本，仅用于本地兼容性测试。
+
+0.2.1 支持相机 HIF 等图像格式，解码能力取决于 macOS。缩略图和文件列表均显示子文件夹，双击进入。文件右键菜单提供在 Finder 打开、复制到、移动到、标记为选择和标记为待删除。文件夹右键可进入文件夹或在 Finder 打开。
+
+0.2.2 启动恢复上次浏览目录时，左侧目录树会展开上级目录、选中该目录并滚动到选中行。
